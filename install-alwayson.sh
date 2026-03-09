@@ -10,25 +10,20 @@ echo "Instalando dependências..."
 sudo apt install -y libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0
 
 echo ""
-echo "Dependências instaladas com sucesso"
-echo ""
+echo "Baixando instalador AlwaysOn..."
 
-if [ -z "$LINK" ]; then
-    echo "Erro: informe o link do AlwaysOn."
-    exit 1
-fi
+wget -O alwayson.tar.gz https://www.islonline.net/download/ISLAlwaysOn_linux.tar.gz
 
-echo ""
-echo "Baixando AlwaysOn..."
+tar -xzf alwayson.tar.gz
 
-curl -L "$LINK" -o ISLAlwaysOn.sh
+DIR=$(find . -type d -name "ISLAlwaysOn*" | head -n1)
 
-chmod +x ISLAlwaysOn.sh
+cd "$DIR"
 
 echo ""
-echo "Executando instalador..."
+echo "Executando instalação..."
 
-./ISLAlwaysOn.sh
+sudo ./ISLAlwaysOn install "$LINK"
 
 echo ""
-echo "Processo finalizado."
+echo "Instalação finalizada"
