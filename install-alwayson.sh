@@ -11,7 +11,6 @@ echo ""
 echo "Dependências instaladas com sucesso"
 echo ""
 
-# pedir link do AlwaysOn
 read -p "Cole o link do AlwaysOn: " LINK
 
 echo ""
