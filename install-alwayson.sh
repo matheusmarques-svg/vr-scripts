@@ -1,5 +1,7 @@
 #!/bin/bash
 
+LINK="$1"
+
 echo "Script AlwaysOn iniciado"
 echo ""
 
@@ -11,17 +13,17 @@ echo ""
 echo "Dependências instaladas com sucesso"
 echo ""
 
-read -p "Cole o link do AlwaysOn: " LINK
+if [ -z "$LINK" ]; then
+    echo "Erro: você precisa informar o link do AlwaysOn."
+    echo "Exemplo:"
+    echo "bash install-alwayson.sh LINK_DO_ALWAYSON"
+    exit 1
+fi
 
 echo ""
 echo "Baixando AlwaysOn..."
 
-wget -O ISLAlwaysOn.sh "$LINK"
-
-if [ ! -f ISLAlwaysOn.sh ]; then
-    echo "Erro ao baixar o instalador."
-    exit 1
-fi
+wget --show-progress -O ISLAlwaysOn.sh "$LINK"
 
 chmod +x ISLAlwaysOn.sh
 
