@@ -4,8 +4,6 @@ echo "Script AlwaysOn iniciado"
 
 echo "Instalando dependências..."
 
-sudo apt update
-
 sudo apt install -y \
 libxcb-icccm4 \
 libxcb-image0 \
