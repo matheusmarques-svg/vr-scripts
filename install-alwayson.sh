@@ -14,16 +14,14 @@ echo "Dependências instaladas com sucesso"
 echo ""
 
 if [ -z "$LINK" ]; then
-    echo "Erro: você precisa informar o link do AlwaysOn."
-    echo "Exemplo:"
-    echo "bash install-alwayson.sh LINK_DO_ALWAYSON"
+    echo "Erro: informe o link do AlwaysOn."
     exit 1
 fi
 
 echo ""
 echo "Baixando AlwaysOn..."
 
-wget --show-progress -O ISLAlwaysOn.sh "$LINK"
+curl -L "$LINK" -o ISLAlwaysOn.sh
 
 chmod +x ISLAlwaysOn.sh
 
