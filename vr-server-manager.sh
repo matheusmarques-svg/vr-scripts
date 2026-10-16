@@ -3,18 +3,20 @@
 # Bash 4.4+, /proc, GNU coreutils e terminal ANSI. Distribuir apenas este arquivo.
 
 initialize_state() {
-    VERSION=0.1.0
+    VERSION=0.1.1
     REFRESH_SECONDS=2
     PROC_ROOT=/proc
     MIN_COLUMNS=32
     MIN_ROWS=16
     ESC=$'\033'
     RESET=$'\033[0m'
-    BOLD=$'\033[1;36m'
+    BOLD=$'\033[1m'
+    ACCENT=$'\033[36m'
     GREEN=$'\033[32m'
     YELLOW=$'\033[33m'
     RED=$'\033[31m'
-    DIM=$'\033[90m'
+    # Informacoes essenciais usam a cor padrao do terminal (temas claros/escuros).
+    DIM=$RESET
     SELECTED=$'\033[1;7m'
     MODULES=('Containers Docker' 'Projetos Compose' 'Logs e Eventos'
              'Diagnóstico' 'Exportações' 'Configurações')
@@ -23,7 +25,7 @@ initialize_state() {
     running=1; dirty=1; resize_pending=1
     terminal_active=0; terminal_saved=''; terminal_fd=''
     worker_pid=''; metrics_fd=''; metric_buffer=''; worker_started=0; next_refresh=0
-    update_count=0; last_update='aguardando'
+    update_count=0; failed_update_count=0; last_update='aguardando'
     status_message='Somente monitoramento. Selecione um módulo.'
     collector_failed=0
     cpu_previous_total=-1; cpu_previous_idle=-1
@@ -34,7 +36,7 @@ initialize_state() {
     uptime_seconds=-1; load_average='Indisponível'
     host_name='Indisponível'; user_name='Indisponível'; distribution='Indisponível'
     columns=80; rows=24; have_df=0
-    FRAME=(); STYLES=(); LAST_FRAME=(); LAST_STYLES=()
+    FRAME=(); STYLES=(); METER_ROWS=(); LAST_FRAME=(); LAST_STYLES=(); LAST_METER_ROWS=()
 }
 
 is_uint() { [[ $1 =~ ^[0-9]{1,16}$ ]]; }
@@ -216,7 +218,9 @@ unavailable_snapshot() {
     mem_total=-1; mem_available=-1; swap_total=-1; swap_free=-1
     disk_total=-1; disk_used=-1; disk_available=-1; disk_percent=-1
     uptime_seconds=-1; load_average='Indisponível'
-    collector_failed=1; dirty=1
+    collector_failed=1
+    ((failed_update_count += 1))
+    dirty=1
 }
 
 poll_collection() {
@@ -258,7 +262,7 @@ read_geometry() {
     # Limites de trabalho; o terminal pode ser maior sem custo proporcional.
     ((rows > 100)) && rows=100
     ((columns > 300)) && columns=300
-    LAST_FRAME=(); LAST_STYLES=()
+    LAST_FRAME=(); LAST_STYLES=(); LAST_METER_ROWS=()
     printf '%s[2J' "$ESC"
     resize_pending=0; dirty=1
 }
@@ -324,11 +328,48 @@ set_line() {
     FRAME[row]=$2; STYLES[row]=${3:-}
 }
 
+fit_text() {
+    local text=$1 limit=$2
+    FIT_TEXT=$text
+    if ((${#text} > limit)); then
+        if ((limit > 1)); then FIT_TEXT="${text:0:limit-1}~"
+        else FIT_TEXT='~'; fi
+    fi
+}
+
+pair_text() {
+    local left=$1 right=$2 width=$((columns - 1)) gap left_width right_width
+    gap=$((width - ${#left} - ${#right}))
+    if ((gap >= 3)); then
+        printf -v PAIR_TEXT '%s%*s%s' "$left" "$gap" '' "$right"
+    else
+        right_width=$(((width - 3) / 2)); left_width=$((width - 3 - right_width))
+        fit_text "$left" "$left_width"; left=$FIT_TEXT
+        fit_text "$right" "$right_width"; right=$FIT_TEXT
+        PAIR_TEXT="$left | $right"
+    fi
+}
+
+section_line() {
+    local row=$1 title=$2 context=${3:-} rule width
+    width=$((columns - 1 - ${#title} - ${#context} - 4))
+    ((width < 1)) && width=1
+    printf -v rule '%*s' "$width" ''; rule=${rule// /-}
+    set_line "$row" "$title $rule $context" "$ACCENT"
+}
+
+metric_geometry() {
+    # Mesmo orcamento nas quatro linhas, independente dos valores ou da mensagem.
+    BAR_WIDTH=$(((columns - 24) / 2))
+    ((BAR_WIDTH < 4)) && BAR_WIDTH=4
+    ((BAR_WIDTH > 48)) && BAR_WIDTH=48
+    DETAIL_WIDTH=$((columns - 1 - 14 - BAR_WIDTH))
+}
+
 metric_line() {
     local row=$1 label=$2 percent=$3 details=$4 width filled empty bar pct color=$GREEN text
-    width=$((columns - 14 - ${#details}))
-    ((width < 4)) && width=4
-    ((width > 24)) && width=24
+    metric_geometry
+    width=$BAR_WIDTH
     if ((percent < 0)); then
         printf -v bar '%*s' "$width" ''; bar=${bar// /?}
         pct=' --%'; color=$DIM
@@ -341,16 +382,22 @@ metric_line() {
         ((percent >= 70)) && color=$YELLOW
         ((percent >= 90)) && color=$RED
     fi
-    printf -v text '%-4s [%s] %s %s' "$label" "$bar" "$pct" "$details"
+    fit_text "$details" "$DETAIL_WIDTH"
+    printf -v text '%-5s [%s] %s %s' "$label" "$bar" "$pct" "$FIT_TEXT"
     set_line "$row" "$text" "$color"
+    METER_ROWS[row]=1
 }
 
 render_indicators() {
-    local used total available details percent uptime_text host_width
-    set_line 1 "VR SERVER MANAGER  v$VERSION" "$BOLD"
-    host_width=$(((columns - 17) / 2))
-    set_line 2 "Host: ${host_name:0:host_width} | Usuário: ${user_name:0:host_width}"
-    set_line 3 "$distribution" "$DIM"
+    local used total available details compact percent uptime_text
+    metric_geometry
+    if ((columns >= 72)); then
+        pair_text "VR SERVER MANAGER v$VERSION" 'ETAPA 1 | SOMENTE LEITURA'
+        set_line 1 "$PAIR_TEXT" "$BOLD"
+    else set_line 1 "VR SERVER MANAGER v$VERSION" "$BOLD"; fi
+    pair_text "Host: $host_name" "Usuário: $user_name"
+    set_line 2 "$PAIR_TEXT"
+    set_line 3 "Linux: $distribution"
     if ((uptime_seconds >= 0)); then
         printf -v uptime_text '%dd%dh%dm' "$((uptime_seconds / 86400))" \
             "$((uptime_seconds / 3600 % 24))" "$((uptime_seconds / 60 % 60))"
@@ -360,15 +407,21 @@ render_indicators() {
             uptime_text="$((uptime_seconds / 86400))d$((uptime_seconds / 3600 % 24))h"
         fi
         set_line 4 "Up $uptime_text | L $load_average"
-    else set_line 4 "Up $uptime_text | Load $load_average"; fi
-    metric_line 5 CPU "$cpu_percent" "$cpu_description"
+    else
+        pair_text "Uptime: $uptime_text" "Load (1/5/15m): $load_average"
+        set_line 4 "$PAIR_TEXT"
+    fi
+    details=$cpu_description
+    if [[ $details == 'entre amostras' ]] && ((${#details} > DETAIL_WIDTH)); then details='entre coletas'; fi
+    metric_line 5 CPU "$cpu_percent" "$details"
     percent=-1; details='Indisponível'
     if ((mem_total > 0)); then
         used=$((mem_total - mem_available)); percent=$((used * 100 / mem_total))
         format_size "$((used * 1024))"; used=$FORMATTED_SIZE
         format_size "$((mem_total * 1024))"; total=$FORMATTED_SIZE
-        details="$used/$total"
-        ((columns >= 90)) && details+=' usados/total'
+        compact="$used/$total"
+        details="$compact usados/total"
+        ((${#details} > DETAIL_WIDTH)) && details=$compact
     fi
     metric_line 6 RAM "$percent" "$details"
     percent=-1; details='Indisponível'
@@ -378,57 +431,73 @@ render_indicators() {
         used=$((swap_total - swap_free)); percent=$((used * 100 / swap_total))
         format_size "$((used * 1024))"; used=$FORMATTED_SIZE
         format_size "$((swap_total * 1024))"; total=$FORMATTED_SIZE
-        details="$used/$total"
+        compact="$used/$total"
+        details="$compact usados/total"
+        ((${#details} > DETAIL_WIDTH)) && details=$compact
     fi
-    metric_line 7 Swap "$percent" "$details"
+    metric_line 7 SWAP "$percent" "$details"
     details='Indisponível'
     if ((disk_total > 0)); then
         format_size "$disk_used"; used=$FORMATTED_SIZE
         format_size "$disk_available"; available=$FORMATTED_SIZE
-        details="U$used L$available"
-        ((columns >= 90)) && details="$used usados | $available disponíveis (/)"
+        compact="U$used L$available"
+        details="$used usados | $available livres (/)"
+        ((${#details} > DETAIL_WIDTH)) && details=$compact
     fi
-    metric_line 8 / "$disk_percent" "$details"
+    metric_line 8 DISCO "$disk_percent" "$details"
     local -a spinner=('|' '/' '-' '\')
-    set_line 9 "${spinner[update_count % 4]} Atualiza: 2s | $last_update #$update_count" "$DIM"
+    if ((columns < 50)); then
+        set_line 9 "2s | $last_update | #$update_count"
+    else
+        pair_text "Atualização: 2s ${spinner[update_count % 4]}" "$last_update | coleta #$update_count"
+        set_line 9 "$PAIR_TEXT"
+    fi
 }
 
 render_menu() {
-    local first_row=11 last_row=$((rows - 4)) slots start i row style text
+    local first_row=11 last_row=$((rows - 4)) slots start i row style text step=1 last_item
     slots=$((last_row - first_row + 1))
+    # Terminais altos ganham respiro entre itens; o compacto usa lista rolavel.
+    if ((slots >= 12)); then step=2; fi
+    slots=$(((slots + step - 1) / step))
     ((slots > 6)) && slots=6
     start=0
     ((selected_module >= slots)) && start=$((selected_module - slots + 1))
-    set_line 10 'MÓDULOS | Enter: abrir | Tab: ajuda' "$BOLD"
-    for ((i=start, row=first_row; i<6 && row<=last_row; i++, row++)); do
+    last_item=$((start + slots))
+    section_line 10 MÓDULOS "$((start + 1))-$last_item/6"
+    for ((i=start, row=first_row; i<6 && row<=last_row; i++, row+=step)); do
         style=''; text="  $((i + 1)). ${MODULES[i]}"
         if ((i == selected_module)); then
             text="> $((i + 1)). ${MODULES[i]}"
             ((focus == 0)) && style=$SELECTED
         fi
+        if ((columns >= 64)); then
+            pair_text "$text" 'Em desenvolvimento'; text=$PAIR_TEXT
+        fi
         set_line "$row" "$text" "$style"
     done
-    if ((last_row >= 18)); then set_line 18 'Todos os módulos: Em desenvolvimento' "$DIM"; fi
+    if ((row <= last_row)); then
+        if ((columns < 48)); then set_line "$last_row" 'Módulos: Em desenvolvimento'
+        else set_line "$last_row" 'Todos os módulos: Em desenvolvimento'; fi
+    fi
     style=$DIM; ((focus == 1)) && style=$SELECTED
     set_line "$((rows - 3))" '[ Ajuda (F1) ]' "$style"
 }
 
 render_module() {
-    set_line 10 "${MODULES[selected_module]}" "$BOLD"
+    section_line 10 "${MODULES[selected_module]}"
     set_line 11 'Em desenvolvimento' "$YELLOW"
     if ((rows >= 20)); then
         set_line 13 'Etapa 1: monitoramento do servidor.'
         set_line 14 'Este módulo ainda não executa ações.' "$DIM"
     fi
-    local style=$SELECTED
-    ((focus == 1)) && style=$DIM
-    set_line "$((rows - 3))" '[ Voltar (Esc) ]' "$style"
-    if ((focus == 1)); then set_line "$((rows - 3))" '[ Voltar (Esc) ]   > Ajuda (Enter)' "$SELECTED"; fi
+    local controls='> Voltar (Esc) | Ajuda (Tab)'
+    ((focus == 1)) && controls='Voltar (Esc) | > Ajuda (Enter)'
+    set_line "$((rows - 3))" "$controls" "$SELECTED"
 }
 
 render_help() {
     local first_row=11 last_row=$((rows - 4)) row line
-    set_line 10 'AJUDA | F1 ou Esc: voltar' "$BOLD"
     local -a help_lines=(
         'Cima/Baixo: navegar | Enter: abrir'
         'Tab: alternar foco | Esc: voltar'
@@ -447,11 +516,16 @@ render_help() {
     max_offset=$((${#help_lines[@]} - slots))
     ((max_offset < 0)) && max_offset=0
     ((help_offset > max_offset)) && help_offset=$max_offset
+    local last_help=$((help_offset + slots))
+    ((last_help > ${#help_lines[@]})) && last_help=${#help_lines[@]}
+    section_line 10 AJUDA "$((help_offset + 1))-$last_help/${#help_lines[@]}"
     for ((row=first_row; row<=last_row && row-first_row+help_offset<${#help_lines[@]}; row++)); do
         line=${help_lines[row-first_row+help_offset]}
         set_line "$row" "$line"
     done
-    set_line "$((rows - 3))" '[ Esc: voltar ]  Cima/Baixo: rolar' "$DIM"
+    if ((columns < 40)); then
+        set_line "$((rows - 3))" 'Esc/F1: voltar | ↑↓: rolar'
+    else set_line "$((rows - 3))" 'Esc/F1: voltar | Cima/Baixo: rolar'; fi
 }
 
 build_alerts() {
@@ -467,14 +541,45 @@ build_alerts() {
     if ((mem_total > 0 && (mem_total - mem_available) * 100 / mem_total >= 90)); then alerts+=('RAM >=90%'); fi
     ((disk_percent >= 90)) && alerts+=('disco >=90%')
     if ((${#alerts[@]})); then
-        local IFS=';'
-        ALERT_TEXT="Alertas: ${alerts[*]}"; ALERT_STYLE=$YELLOW
-    else ALERT_TEXT='Alertas: nenhum | Somente leitura'; ALERT_STYLE=$DIM; fi
+        local alert index=0
+        ALERT_TEXT='Alertas: '
+        for alert in "${alerts[@]}"; do
+            ((index > 0)) && ALERT_TEXT+='; '
+            ALERT_TEXT+=$alert; ((index += 1))
+        done
+        if ((${#ALERT_TEXT} >= columns)); then
+            index=$(((update_count + failed_update_count) % ${#alerts[@]}))
+            ALERT_TEXT="Alertas $((index + 1))/${#alerts[@]}: ${alerts[index]}"
+        fi
+        ALERT_STYLE=$YELLOW
+    else
+        ALERT_TEXT='Alertas: nenhum | Somente leitura'
+        ((columns < 40)) && ALERT_TEXT='Alertas: nenhum'
+        ALERT_STYLE=$DIM
+    fi
+}
+
+render_footer() {
+    local status=$status_message
+    if ((columns < 64)); then
+        case $status in
+            'Somente monitoramento.'*) status='Somente leitura | Etapa 1' ;;
+            'Em desenvolvimento.'*) status='Em desenvolvimento' ;;
+        esac
+    fi
+    set_line "$((rows - 2))" "$status"
+    build_alerts
+    set_line "$((rows - 1))" "$ALERT_TEXT" "$ALERT_STYLE"
+    if ((columns >= 72)); then
+        set_line "$rows" '↑↓ navegar | Enter abrir | Tab foco | Esc voltar | F1 ajuda | R | Q sair'
+    elif ((columns >= 44)); then
+        set_line "$rows" '↑↓ Enter | Tab foco | Esc | F1 | R | Q sair'
+    else set_line "$rows" '↑↓ Enter Tab Esc F1 R | Q:sair'; fi
 }
 
 render_frame() {
     local row text style output=''
-    FRAME=(); STYLES=()
+    FRAME=(); STYLES=(); METER_ROWS=()
     if ((columns < MIN_COLUMNS || rows < MIN_ROWS)); then
         set_line 1 "VR SERVER MANAGER v$VERSION" "$BOLD"
         set_line 2 "Terminal: ${columns}x${rows} (pequeno)" "$YELLOW"
@@ -487,20 +592,20 @@ render_frame() {
             module) render_module ;;
             help) render_help ;;
         esac
-        set_line "$((rows - 2))" "$status_message"
-        build_alerts
-        set_line "$((rows - 1))" "$ALERT_TEXT" "$ALERT_STYLE"
-        if ((columns >= 72)); then
-            set_line "$rows" 'Cima/Baixo: navegar | Enter | Tab | Esc: voltar | F1: ajuda | R | Q: sair' "$DIM"
-        else set_line "$rows" 'F1 ajuda | R atualiza | Q sai' "$DIM"; fi
+        render_footer
     fi
     # Comparacao por linha: sem clear/erase total durante atualizacoes normais.
     for ((row=1; row<=rows; row++)); do
         text=${FRAME[row]:-}; style=${STYLES[row]:-}
         text=${text:0:columns-1}
-        if [[ ${LAST_FRAME[row]-__unset__} != "$text" || ${LAST_STYLES[row]-__unset__} != "$style" ]]; then
-            output+="$ESC[${row};1H$style$text$RESET$ESC[K"
-            LAST_FRAME[row]=$text; LAST_STYLES[row]=$style
+        if [[ ${LAST_FRAME[row]-__unset__} != "$text" || ${LAST_STYLES[row]-__unset__} != "$style" || ${LAST_METER_ROWS[row]:-0} != "${METER_ROWS[row]:-0}" ]]; then
+            output+="$ESC[${row};1H$RESET"
+            if [[ ${METER_ROWS[row]:-0} == 1 ]]; then
+                # ANSI nao participa do corte de largura; apenas a barra recebe cor.
+                output+="${text:0:6}$style${text:6:BAR_WIDTH+2}$RESET${text:BAR_WIDTH+8}"
+            else output+="$style$text$RESET"; fi
+            output+="$ESC[K"
+            LAST_FRAME[row]=$text; LAST_STYLES[row]=$style; LAST_METER_ROWS[row]=${METER_ROWS[row]:-0}
         fi
     done
     [[ -z $output ]] || printf '%s' "$output"

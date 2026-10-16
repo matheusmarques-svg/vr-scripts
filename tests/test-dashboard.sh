@@ -134,7 +134,7 @@ initialize_state
 columns=32; rows=16; selected_module=5
 render_frame > "$fixture_dir/frame"
 assert 'Layout 32x16 mantem item selecionado visivel' contains "${LAST_FRAME[*]}" '6. Configurações'
-assert 'Layout compacto preserva CPU/RAM/swap/disco' equal "${FRAME[5]:0:3}/${FRAME[6]:0:3}/${FRAME[7]:0:4}/${FRAME[8]:0:1}" CPU/RAM/Swap//
+assert 'Layout compacto preserva CPU/RAM/swap/disco' equal "${FRAME[5]:0:3}/${FRAME[6]:0:3}/${FRAME[7]:0:4}/${FRAME[8]:0:5}" CPU/RAM/SWAP/DISCO
 longest=0
 for line in "${LAST_FRAME[@]}"; do ((${#line} > longest)) && longest=${#line}; done
 assert 'Linhas compactas nao ultrapassam margem direita' test "$longest" -le 31

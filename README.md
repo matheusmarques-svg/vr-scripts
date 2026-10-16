@@ -3,8 +3,15 @@
 Painel de monitoramento para Ubuntu Server, Ubuntu Desktop e sessões SSH
 interativas. A distribuição consiste somente em `vr-server-manager.sh`.
 
-Esta implementação substitui o protótipo anterior pela arquitetura da primeira
-etapa. Os seis módulos exibem **Em desenvolvimento**. Não há descoberta de
+Versão **0.1.1**, proposta no branch `feat/dashboard-etapa1` para a
+[Issue #1](https://github.com/matheusmarques-svg/vr-scripts/issues/1). O branch
+partiu da `main` v1.0.0 (`90552a6`), preservada sem alterações diretas.
+A entrega Codex v0.1.0 foi conferida byte a byte com a
+[pasta original do Drive](https://drive.google.com/drive/folders/1tW4iBlAfaAlt7v5PL6xgo95jVIeOuZp5)
+e importada no commit `65eff7e`, antes dos ajustes visuais. São códigos distintos;
+os refinamentos desta versão usam a entrega do Drive como base.
+
+Os seis módulos exibem **Em desenvolvimento**. Não há descoberta de
 containers, chamadas Docker, instalações, logs em disco ou acesso a arquivos
 `.vr`. O arquivo independente `install-alwayson.sh` não faz parte do painel.
 
@@ -36,8 +43,11 @@ script. `--check` funciona sem terminal e não modifica seu estado.
 
 A parte superior mostra hostname, usuário, distribuição, uptime, CPU, RAM,
 swap, disco raiz, carga média e o horário/contador de atualização. CPU, RAM,
-swap e disco têm barras verdes, amarelas a partir de 70% e vermelhas a partir
-de 90%. Os rodapés mostram status, alertas e atalhos.
+swap e disco têm barras com largura comum e percentuais alinhados, que não se
+deslocam quando os valores ou mensagens mudam. As barras são verdes, amarelas
+a partir de 70% e vermelhas a partir de 90%; rótulos e valores usam a cor padrão
+do terminal, inclusive em temas claros. Os rodapés mostram status, alertas e
+todos os atalhos mesmo no modo compacto.
 
 | Tecla | Ação |
 | --- | --- |
@@ -54,11 +64,16 @@ A seleção e o foco não mudam durante as atualizações automáticas. A ajuda 
 telas dos módulos continuam recebendo métricas. O menu usa uma janela de itens
 quando não cabe inteiro, mantendo a seleção visível. O mínimo utilizável é
 32 colunas por 16 linhas; abaixo disso, há um aviso para ampliar o terminal e
-o atalho Q continua disponível. Redimensionamentos são tratados por SIGWINCH.
+o atalho Q continua disponível. Menu e ajuda mostram a faixa de itens visíveis;
+em terminais altos, os itens do menu ganham espaçamento. Alertas que não cabem
+juntos alternam a cada atualização, com indicação de posição/total.
+Redimensionamentos são tratados por SIGWINCH.
 
 G, M e T representam GiB, MiB e TiB. No layout compacto, `U` significa disco
 usado e `L`, disponível; `L` na linha de uptime identifica a carga média de
-1, 5 e 15 minutos. Textos extensos são cortados à largura disponível.
+1, 5 e 15 minutos. Nomes extensos no cabeçalho são abreviados com `~`, mantendo
+os dois rótulos de host e usuário. Detalhes das métricas têm versões compactas
+para preservar os valores de uso/total e de disco usado/disponível.
 
 ## Arquitetura
 
@@ -79,6 +94,8 @@ usado e `L`, disponível; `L` na linha de uptime identifica a carga média de
   tela atual. A organização permite acrescentar diálogos sem parar o monitor.
 - O renderizador compara texto e estilo de cada linha. Só as linhas alteradas
   são escritas; a limpeza completa ocorre na entrada e no redimensionamento.
+  As sequências ANSI são inseridas depois do cálculo de largura, colorindo
+  apenas as barras; não entram no corte do texto.
 - `EXIT`, `INT`, `TERM`, `HUP` e `QUIT` encerram o coletor e restauram o estado
   de `stty`, cores, cursor e tela alternativa. Não se usa `set -e`: falhas de
   métricas são estados recuperáveis, com mensagens no painel.
@@ -91,23 +108,34 @@ caracteres de controle removidos antes da exibição.
 ```bash
 bash -n vr-server-manager.sh
 bash tests/test-dashboard.sh
+bash tests/test-layout.sh
 bash tests/test-terminal.sh
 ```
 
 A primeira suíte testa a lógica, a decodificação de teclas e a comunicação real
-entre processos com dados de teste controlados. A segunda deve ser executada
-no Ubuntu como usuário comum: usa o `script` do util-linux para testar um
+entre processos com dados de teste controlados. A suíte de layout cobre sete
+larguras, quatro alturas, nove estados de métricas, contraste e redraw parcial.
+A suíte de terminal deve ser executada no Ubuntu como usuário comum: usa o
+`script` do util-linux para testar um
 pseudoterminal real, incluindo Ctrl+C e comparação exata de `stty` antes/depois.
 Nenhuma suíte instala pacotes. Seus arquivos temporários ficam restritos a um
 diretório próprio de teste, removido ao final.
+
+O workflow `Dashboard checks` também executa sintaxe e as três suítes em um
+runner Ubuntu 24.04, em pushes para `feat/dashboard-etapa1` e PRs para `main`.
+Ele tem permissão somente de leitura do repositório e não instala pacotes.
 
 Os resultados efetivamente obtidos e os itens **não testados** estão em
 [TESTES.md](TESTES.md).
 
 ## Limitações desta etapa
 
-- Validação com métricas e terminal reais no Ubuntu/SSH está pendente; o
-  ambiente de desenvolvimento disponível é Windows com Git Bash, sem WSL.
+- A Issue #1 registra a validação manual da **v0.1.0** no Ubuntu
+  `pdv-linux-servicos`, usuário comum `vr`: abertura, CPU na segunda amostra,
+  F1/Esc preservando seleção e saída com Q. Isso não substitui a homologação
+  visual da **v0.1.1**, de Ctrl+C, de SSH ou a comparação exata de `stty` nesse
+  servidor. O ambiente de desenvolvimento local é Windows/Git Bash sem WSL;
+  o runner de CI cobre Ubuntu/PTY, e os logs dos checks registram seu resultado.
 - Bash 4.4 usa o relógio `SECONDS`, com resolução de um segundo. Bash 5+ usa
   `EPOCHREALTIME` em milissegundos para agendar o intervalo de 2 segundos.
 - A primeira porcentagem válida de CPU aparece após a segunda coleta.
