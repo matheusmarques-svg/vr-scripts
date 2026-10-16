@@ -1,0 +1,45 @@
+name: Dashboard checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - feat/dashboard-etapa1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    name: Bash and terminal checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    env:
+      LC_ALL: C.UTF-8
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check Bash syntax
+        run: |
+          bash -n vr-server-manager.sh
+          for test_script in tests/*.sh; do
+            bash -n "$test_script"
+          done
+
+      - name: Check dashboard behavior
+        run: bash tests/test-dashboard.sh
+
+      - name: Check responsive layout
+        run: bash tests/test-layout.sh
+
+      - name: Check real pseudoterminal and restoration
+        run: bash tests/test-terminal.sh
